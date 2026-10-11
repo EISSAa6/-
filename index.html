@@ -153,6 +153,8 @@ function norm(n){return n.trim().replace(/\s+/g,' ').replace(/[أإآ]/g,'ا').r
 var ORD={'الأول':'١','الثاني':'٢','الثالث':'٣','الرابع':'٤','الخامس':'٥','السادس':'٦','السابع':'٧','الثامن':'٨','التاسع':'٩','العاشر':'١٠','الأولى':'١','الثانية':'٢','الثالثة':'٣','الرابعة':'٤','الخامسة':'٥','السادسة':'٦','السابعة':'٧','الثامنة':'٨','التاسعة':'٩','العاشرة':'١٠'};
 function lw(t){var w=t.trim().split(' ');return ORD[w[w.length-1]]||''}
 ROSTER.forEach(function(g){g.names.forEach(function(n,i){var s={c:g.c,f:g.f,code:'س'+lw(g.c)+' ف'+lw(g.f),i:i+1,n:n,r:g.res.indexOf(i+1)>=0,h:(g.hosp||[]).indexOf(i+1)>=0};FLAT.push(s);PL[norm(n)]=s})});
+var HOFF=[];try{HOFF=JSON.parse(localStorage.getItem('tabiya_hoff')||'[]')}catch(e){HOFF=[]}
+FLAT.forEach(function(s){if(HOFF.indexOf(norm(s.n))>=0)s.h=false});
 var ITEMS=[],CUR=null;
 function row(s,i){return '<div data-i="'+i+'">'+esc(s.n)+(s.r?' <span class="b on">استقالة</span>':'')+(s.h?' <span class="b up">مستشفى خارجي</span>':'')+(s.code&&CUR===null?' <small>'+esc(s.code)+'</small>':'')+'</div>'}
 function sug(){
@@ -186,20 +188,25 @@ function renderRoster(){
   var st={};group().forEach(function(x){st[x.k]=x});
   var h='',tot=0;
   ROSTER.forEach(function(g){
-    var rows=FLAT.filter(function(s){var x=st[norm(s.n)];return s.c==g.c&&s.f==g.f&&(s.r||(x&&x.st=='on'))});
+    var rows=FLAT.filter(function(s){return s.c==g.c&&s.f==g.f});
     if(!rows.length)return;tot+=rows.length;
     h+='<div class="card"><b>'+g.c+' – '+g.f+'</b> <span style="color:var(--mu);font-size:.8rem">('+rows.length+')</span><div class="scroll"><table><thead><tr><th style="width:54%">الاسم</th><th>الحالة</th></tr></thead><tbody>';
     rows.forEach(function(s){
       var x=st[norm(s.n)];
-      h+='<tr'+(s.r?' class="rs"':'')+'><td>'+esc(s.n)+'</td><td>'+(s.r?'<span class="b on">استقالة</span>':x&&x.st=='on'?'<span class="b on">'+esc(x.txt)+'</span>':'—')+'</td></tr>';
+      h+='<tr'+(s.r?' class="rs"':'')+'><td style="white-space:normal;overflow:visible;text-overflow:clip;line-height:1.5">'+esc(s.n)+(s.h?' <span class="b up">مستشفى خارجي</span>':'')+'</td><td>'+(s.r?'<span class="b on">استقالة</span>':x&&x.st=='on'?'<span class="b on">'+esc(x.txt)+'</span>':'—')+'</td></tr>';
     });
     h+='</tbody></table></div></div>';
   });
-  if(!tot)h='<div class="card" style="text-align:center;color:var(--mu)">لا يوجد مستقيل ولا طبية حالياً</div>';
+  
   document.getElementById('ros').innerHTML=h;
 }
 var KEY='tabiya_v1',data=[],open={};
 try{data=JSON.parse(localStorage.getItem(KEY)||'[]')}catch(e){data=[]}
+try{
+  var lc=+localStorage.getItem('tabiya_clean')||0,nowT=Date.now(),td=iso(new Date());
+  if(!lc)localStorage.setItem('tabiya_clean',String(nowT));
+  else if(nowT-lc>=7*864e5){data=data.filter(function(l){return l.e>=td});save();localStorage.setItem('tabiya_clean',String(nowT))}
+}catch(e){}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(data))}catch(e){}}
 function $(i){return document.getElementById(i)}
 function esc(s){return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
@@ -258,18 +265,35 @@ function endInfo(e){
   return 'تنتهي بعد '+n;
 }
 var LK=null,LT={s1:'انتهت طبيتهم',s2:'طبية حالياً',s3:'مستشفى خارجي',c2:'عجز السرية'};
+var CURROWS=[];
+function saveHoff(){try{localStorage.setItem('tabiya_hoff',JSON.stringify(HOFF))}catch(e){}}
+var CONFKEY=null;
+function rmRow(i){
+  var r=CURROWS[i];if(!r)return;
+  var key=r.kind+'|'+(r.id||norm(r.n));
+  if(CONFKEY!==key){CONFKEY=key;renderList();return}
+  CONFKEY=null;
+  if(r.kind=='m'){
+    data=data.filter(function(l){return l.id!=r.id});save();
+  }else{
+    HOFF.push(norm(r.n));saveHoff();
+    FLAT.forEach(function(s){if(norm(s.n)==norm(r.n))s.h=false});
+  }
+  render();
+}
 function renderList(){
   var box=$('lst');
   document.querySelectorAll('.stat').forEach(function(d){d.classList.remove('sel')});
   if(!LK){box.style.display='none';return}
   $(LK).parentNode.classList.add('sel');
   var g=group(),rows=[],seen={};
-  function add(n,pl,t){var k=norm(n);if(seen[k])return;seen[k]=1;rows.push({n:n,c:pl?pl.code:'',t:t})}
-  if(LK=='s1')g.filter(function(x){return x.st=='end'}).forEach(function(x){add(x.name,x.pl,'')});
-  if(LK=='s2'||LK=='c2')g.filter(function(x){return x.st=='on'}).forEach(function(x){add(x.name,x.pl,x.txt.replace('طبية — ',''))});
-  if(LK=='s3'||LK=='c2')FLAT.filter(function(s){return s.h}).forEach(function(s){add(s.n,s,'مستشفى خارجي')});
-  var h='<div style="display:flex;justify-content:space-between"><b>'+LT[LK]+' ('+rows.length+')</b><button class="x" onclick="LK=null;renderList()">إغلاق</button></div>';
-  h+=rows.length?rows.map(function(r){return '<div class="li"><span>'+esc(r.n)+' <small>'+esc(r.c)+'</small></span><small>'+esc(r.t)+'</small></div>'}).join(''):'<div style="color:var(--mu);padding:10px 0">لا يوجد أحد</div>';
+  function add(n,pl,t,id,kind){var k=norm(n)+kind;if(seen[k])return;seen[k]=1;rows.push({n:n,c:pl?pl.code:'',t:t,id:id,kind:kind})}
+  if(LK=='s1')g.filter(function(x){return x.st=='end'}).forEach(function(x){add(x.name,x.pl,'',x.ls[0].id,'m')});
+  if(LK=='s2'||LK=='c2')g.filter(function(x){return x.st=='on'}).forEach(function(x){var cur=x.ls.filter(function(l){return l.s<=today&&l.e>=today})[0];add(x.name,x.pl,x.txt.replace('طبية — ',''),(cur||x.ls[0]).id,'m')});
+  if(LK=='s3'||LK=='c2')FLAT.filter(function(s){return s.h}).forEach(function(s){add(s.n,s,'مستشفى خارجي',null,'h')});
+  CURROWS=rows;
+  var h='<div style="display:flex;justify-content:space-between;align-items:center"><b>'+LT[LK]+' ('+rows.length+')</b><button class="g" onclick="LK=null;CONFKEY=null;renderList()">إغلاق</button></div>';
+  h+=rows.length?rows.map(function(r,i){return '<div class="li"><span>'+esc(r.n)+' <small>'+esc(r.c)+'</small></span><span style="display:flex;gap:6px;align-items:center"><small>'+esc(r.t)+'</small><button class="x" onclick="rmRow('+i+')">'+(CONFKEY==(r.kind+'|'+(r.id||norm(r.n)))?'تأكيد الحذف':(r.kind=='m'?'حذف':'إزالة'))+'</button></span></div>'}).join(''):'<div style="color:var(--mu);padding:10px 0">لا يوجد أحد</div>';
   box.innerHTML=h;box.style.display='block';
 }
 ['s1','s2','s3','c2'].forEach(function(id){$(id).parentNode.addEventListener('click',function(){LK=LK==id?null:id;renderList()})});
@@ -337,7 +361,7 @@ $('tb').addEventListener('click',function(e){
   if(r)toggle(r.getAttribute('data-k'));
 });
 function hideSplash(){var e=document.getElementById('splash');if(e)e.classList.add('out')}
-setTimeout(hideSplash,2500);
+setTimeout(hideSplash,4000);
 mkDate('a');mkDate('b',true);
 render();
 setInterval(function(){var ai=$('ai');if(ai&&!ai.dataset.t&&ai.value!==iso(new Date())){ai.value=iso(new Date())}render()},60000);
